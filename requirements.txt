@@ -1,0 +1,6 @@
+pyautogui
+pillow
+pyscreeze
+mouseinfo
+pygetwindow
+pywin32
