@@ -1,10 +1,21 @@
-# play_fullscreen.py
-import time
+import os
 import sys
+import time
+import platform
+import subprocess
 
-# Try to set Windows master volume to 100%
+# Helpful helper so the app can access files bundled by PyInstaller
+def resource_path(relative_path):
+    # When running as a onefile bundle, PyInstaller extracts files to _MEIPASS
+    if getattr(sys, "frozen", False):
+        base = sys._MEIPASS
+    else:
+        base = os.path.abspath(".")
+    return os.path.join(base, relative_path)
+
 def set_volume_100_windows():
     try:
+        # Use comtypes/pycaw approach for robust volume setting (requires pycaw)
         from ctypes import cast, POINTER
         from comtypes import CLSCTX_ALL
         from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
@@ -12,65 +23,86 @@ def set_volume_100_windows():
         devices = AudioUtilities.GetSpeakers()
         interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
         volume = cast(interface, POINTER(IAudioEndpointVolume))
-        # 1.0 == 100%
-        volume.SetMasterVolumeLevelScalar(1.0, None)
-        return True
+        volume.SetMasterVolumeLevelScalar(1.0, None)  # 1.0 = 100%
     except Exception as e:
-        print("Warning: couldn't set system volume (not Windows or dependency missing).", e)
-        return False
+        # fallback: try PowerShell keypress approach (less reliable)
+        try:
+            subprocess.run(
+                'powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]175 * 50)"',
+                shell=True,
+                check=False
+            )
+        except Exception:
+            print("Unable to set system volume automatically:", e)
 
-# Play a video URL/fullpath in fullscreen using python-vlc and wait until done
-def play_video_fullscreen(video_path_or_url):
+def play_video_fullscreen(video_path):
+    # Try python-vlc first (recommended) — requires VLC installed on the build machine / target or libvlc bundled
     try:
         import vlc
-    except Exception as e:
-        print("python-vlc is not installed or couldn't be imported:", e)
-        return False
-
-    try:
-        # Create instance and media player
         instance = vlc.Instance()
         player = instance.media_player_new()
-        media = instance.media_new(video_path_or_url)
+        media = instance.media_new(video_path)
         player.set_media(media)
-
-        # Start playback
         player.play()
-        # Give it a moment to start
-        time.sleep(0.2)
-
-        # Try to set full screen (may depend on VLC/libvlc availability)
+        time.sleep(0.3)
         try:
             player.set_fullscreen(True)
         except Exception:
             pass
-
-        # Wait until playback ends (or error)
         state = player.get_state()
         while state not in (vlc.State.Ended, vlc.State.Error):
             time.sleep(0.5)
             state = player.get_state()
-
-        # Stop and release
         player.stop()
-        return state == vlc.State.Ended
+        return True
     except Exception as e:
-        print("Error while playing video:", e)
+        # Fallback: try to call an external player (vlc.exe or mpv) on PATH
+        for exe in ("vlc", "mpv", "wmplayer"):
+            try:
+                subprocess.run([exe, "--fullscreen", "--play-and-exit", video_path], check=True)
+                return True
+            except FileNotFoundError:
+                continue
+            except Exception:
+                # try different flags or just open
+                try:
+                    if exe == "wmplayer":
+                        subprocess.run(["start", video_path], shell=True)
+                        return True
+                    continue
+                except Exception:
+                    continue
+        print("No suitable player found. Install VLC or MPV, or run this script with a player available.")
         return False
 
 def main():
-    # Replace with the raw URL to the mp4 on GitHub (raw link)
-    video_url = "https://raw.githubusercontent.com/veeedu/fundraising/main/rickroll.mp4"
+    # bundled video filename
+    video_file = resource_path("rickroll.mp4")
+    if not os.path.exists(video_file):
+        print("Missing rickroll.mp4 in same folder as the script.")
+        return
 
-    print("Setting volume to 100% (Windows)...")
-    set_volume_100_windows()
-
-    print("Playing video full screen. This will block until playback finishes...")
-    ok = play_video_fullscreen(video_url)
-    if ok:
-        print("Playback finished normally.")
+    if platform.system() == "Windows":
+        set_volume_100_windows()
     else:
-        print("Playback ended with error or was interrupted.")
+        # On Linux/Mac, try simple commands (optional)
+        if platform.system() == "Linux":
+            try:
+                subprocess.run(["amixer", "sset", "Master", "100%"], check=False)
+            except Exception:
+                pass
+        elif platform.system() == "Darwin":
+            try:
+                subprocess.run(["osascript", "-e", "set volume output volume 100"], check=False)
+            except Exception:
+                pass
+
+    print("Playing video now...")
+    ok = play_video_fullscreen(video_file)
+    if ok:
+        print("Playback finished.")
+    else:
+        print("Playback failed or was aborted.")
 
 if __name__ == "__main__":
     main()
