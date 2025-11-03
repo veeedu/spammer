@@ -9,25 +9,26 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: Install pip deps
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pycaw comtypes python-vlc pyinstaller
 
-      - name: Build exe
+      - name: Build onefile exe (bundle mp4)
         run: |
-          python -m PyInstaller --onefile --windowed --name spm spm.py
+          # On Windows the --add-data uses semicolon to separate src;dest
+          python -m PyInstaller --onefile --windowed --name player --add-data "rickroll.mp4;." play_rickroll.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: spm-windows-exe
-          path: dist/spm.exe
+          name: player-windows-exe
+          path: dist/player.exe
